@@ -1,8 +1,10 @@
-#include <stdio.h> //biblioteca de entrada/salida vista en clases. printf() fprintf() etc...
+#include <stdio.h> //biblioteca de entrada/salida vista en clases. printf(), fprintf(), fopen(), fgets() 
 #include <stdlib.h> //Trae otras funciones como atoi() que transforma el pid en numero utilizable
 #include <string.h> //Este es para trabajar con strings
-#include <unistd.h> //La biblioteca mas importante ya que contiene funciones como fork(), exec(), etc...
-#include <sys/types.h> //Por ultimo , este define tipos del sistema, como pid_t 
+#include <unistd.h> //La biblioteca mas importante ya que contiene funciones como fork(), exec(), alarm(), sysconf()
+#include <sys/types.h> //este define tipos del sistema, como pid_t 
+#include <signal.h> // Manejo de señales como SIGALRM
+#include <time.h>   // Medición del tiempo real transcurrido
 
 //Esta estructura agrupa la informacion de los procesos
 
@@ -15,25 +17,33 @@ typedef struct {
     long rss_kb;
 } ProcesoInfo;
 
+// la bandera para cuando se actualice si es que llego la señal
+
+volatile sig_atomic_t actualizar= 0;
+
+// Manejador de SIGALRM, solo avisa que corresponde actualizar
+void manejar_alarma(int signal){
+    (void)signal;
+    actualizar= 1;
+}
 
 //Esto se encarga de leer el /proc/PID/stat y guarda los datos
-int leer_stat(pid_t pid, ProcesoInfo *info)
-{
+int leer_stat(pid_t pid, ProcesoInfo *info){
     char ruta[64];
     char linea[4096];
 
     snprintf(ruta, sizeof(ruta), "/proc/%d/stat", (int)pid);
 
-    FILE *archivo = fopen(ruta, "r");
+    FILE *archivo= fopen(ruta, "r");
 
 	//En el caso que haya un error con el archivo ya sea porque no existe o no se pudo abrir lanzara un error
 
-    if (archivo == NULL) {
+    if(archivo== NULL){
         return 1;
     }
-	//En el caso que no se lle la linea completa del archivo
+	//En el caso que no se lee la linea completa del archivo
 
-    if (fgets(linea, sizeof(linea), archivo) == NULL) {
+    if(fgets(linea, sizeof(linea), archivo)== NULL){
         fclose(archivo);
         return 1;
     }
@@ -42,42 +52,42 @@ int leer_stat(pid_t pid, ProcesoInfo *info)
 
 
     //  En esta parte busca la parte inicial y final del nombre del proceso en /proc/PID/stat
-    char *inicio = strchr(linea, '(');
-    char *fin = strrchr(linea, ')');
+    char *inicio= strchr(linea, '(');
+    char *fin= strrchr(linea, ')');
 
-    if (inicio == NULL || fin == NULL) {
+    if(inicio== NULL || fin== NULL){
         return 1;
     }
 	//Calcula el largo del nombre del proceso
 
-    size_t largo = (size_t)(fin - inicio - 1);
+    size_t largo= (size_t)(fin - inicio - 1);
 
-    if (largo >= sizeof(info->comando)) {
-        largo = sizeof(info->comando) - 1;
+    if(largo>= sizeof(info->comando)){
+        largo= sizeof(info->comando) - 1;
     }
 
 	//En esta parte se copia el nombre del proceso a la estructura
 
     memcpy(info->comando, inicio + 1, largo);
-    info->comando[largo] = '\0';
+    info->comando[largo]= '\0';
 
 
     /*
      * Después del nombre vienen:
      *
-     * campo 3  = estado
-     * campo 4  = ppid
-     * campo 5  = pgrp
-     * campo 6  = session
-     * campo 7  = tty_nr
-     * campo 8  = tpgid
-     * campo 9  = flags
-     * campo 10 = minflt
-     * campo 11 = cminflt
-     * campo 12 = majflt
-     * campo 13 = cmajflt
-     * campo 14 = utime
-     * campo 15 = stime
+     * campo 3= estado
+     * campo 4= ppid
+     * campo 5= pgrp
+     * campo 6= session
+     * campo 7= tty_nr
+     * campo 8= tpgid
+     * campo 9= flags
+     * campo 10= minflt
+     * campo 11= cminflt
+     * campo 12= majflt
+     * campo 13= cmajflt
+     * campo 14= utime
+     * campo 15= stime
      */
 
     char *resto = fin + 2;
@@ -98,7 +108,7 @@ int leer_stat(pid_t pid, ProcesoInfo *info)
 	//Aqui lee los campos de /proc/PID/stat en orden
 	//los campos intermedios solo se guardan para llegar a estado, utime y stime
 
-    int leidos = sscanf(
+    int leidos= sscanf(
         resto,
         "%c %d %d %d %d %d %u %lu %lu %lu %lu %lu %lu",
         &info->estado,
@@ -117,7 +127,7 @@ int leer_stat(pid_t pid, ProcesoInfo *info)
     );
 
 
-    if (leidos != 13) {
+    if(leidos!= 13){
         return 1;
     }
 
@@ -126,8 +136,7 @@ int leer_stat(pid_t pid, ProcesoInfo *info)
 
 
 // Lee VmRSS desde /proc/PID/status 
-int leer_status(pid_t pid, ProcesoInfo *info)
-{
+int leer_status(pid_t pid, ProcesoInfo *info){
     char ruta[64];
     char linea[512];
 
@@ -135,11 +144,11 @@ int leer_status(pid_t pid, ProcesoInfo *info)
 
     FILE *archivo = fopen(ruta, "r");
 
-    if (archivo == NULL) {
+    if(archivo== NULL){
         return 1;
     }
 
-    info->rss_kb = -1;
+    info->rss_kb= -1;
 
 	//Aqui se recorre el archivo status linea por linea hasta que se encuentre VmRSS
 
@@ -147,7 +156,7 @@ int leer_status(pid_t pid, ProcesoInfo *info)
 
 	//en el caso que lo encuentre guarda la memoria residente en kb
 
-        if (sscanf(linea, "VmRSS: %ld kB", &info->rss_kb) == 1) {
+        if(sscanf(linea, "VmRSS: %ld kB", &info->rss_kb)== 1){
             break;
         }
     }
@@ -162,8 +171,8 @@ int leer_status(pid_t pid, ProcesoInfo *info)
 }
 
 // Calcula el porcentaje aproximado de CPU entre dos mediciones
-double calcular_cpu(ProcesoInfo *anterior, ProcesoInfo *actual, double intervalo)
-{
+
+double calcular_cpu(ProcesoInfo *anterior, ProcesoInfo *actual, double intervalo){
     unsigned long cpu_anterior= anterior->utime + anterior->stime;
     unsigned long cpu_actual= actual->utime + actual->stime;
     unsigned long diferencia_ticks= cpu_actual - cpu_anterior;
@@ -177,9 +186,15 @@ double calcular_cpu(ProcesoInfo *anterior, ProcesoInfo *actual, double intervalo
     return porcentaje;
 }
 
+double tiempo_transcurrido(struct timespec inicio, struct timespec fin){
+    double segundos= (double)(fin.tv_sec - inicio.tv_sec);
+    double nanosegundos= (double)(fin.tv_nsec - inicio.tv_nsec) / 1000000000.0;
+
+    return segundos + nanosegundos;
+}
+
 // Aqui cada letra tiene su estado incorporado 
-const char *nombre_estado(char estado)
-{
+const char *nombre_estado(char estado){
     switch (estado) {
 
         case 'R':
@@ -203,60 +218,112 @@ const char *nombre_estado(char estado)
 }
 
 
-int main(int argc, char *argv[])
-{
-    if (argc!= 2) {
+int main(int argc, char *argv[]){
+    if(argc!= 2){
         printf("Uso: %s PID\n", argv[0]);
         return 1;
     }
 
-	//Se pasa el PID a un valor numerico para poder manejarlo con el atoi()
-
+    //Se pasa el PID a un valor numerico para poder manejarlo con atoi()
     pid_t pid= (pid_t)atoi(argv[1]);
 
+    //Esto le dice al sistema que ejecute manejar_alarma() cuando reciba SIGALRM
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+
+    sa.sa_handler= manejar_alarma;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags= SA_RESTART;
+
+    if(sigaction(SIGALRM, &sa, NULL)== -1){
+        perror("sigaction");
+        return 1;
+    }
+
+    //Se crean las dos mediciones del proceso
     ProcesoInfo anterior;
     ProcesoInfo actual;
+
     anterior.pid= pid;
     actual.pid= pid;
 
-// Primera medicion
-if (leer_stat(pid, &anterior)== 1) {
-    fprintf(stderr, "No se pudo realizar la primera lectura\n");
-    return 1;
-}
+    //Primera medicion
+    if(leer_stat(pid, &anterior)== 1){
+        fprintf(stderr, "No se pudo realizar la primera lectura\n");
+        return 1;
+    }
 
+    int intervalo= 2;
 
-// Intervalo de prueba: 2 segundos
-int intervalo= 2;
+    struct timespec tiempo_anterior;
+    struct timespec tiempo_actual;
 
-printf("Midiendo proceso %d durante %d segundos...\n",
-       (int)pid, intervalo);
+    //Guarda el instante de la primera medicion
+    if(clock_gettime(CLOCK_MONOTONIC, &tiempo_anterior)== -1){
+        perror("clock_gettime");
+        return 1;
+    }
 
-sleep(intervalo);
+    printf("Monitoreando PID %d cada %d segundos...\n",
+           (int)pid, intervalo);
 
+    //Programa la primera alarma
+    alarm(intervalo);
 
-// Segunda medicion
-if (leer_stat(pid, &actual)== 1) {
-    fprintf(stderr, "El proceso termino durante la medicion\n");
-    return 1;
-}
+    while(1){
 
+        //Espera hasta recibir una señal
+        pause();
 
-if (leer_status(pid, &actual)== 1) {
-    fprintf(stderr, "No se pudo leer /proc/%d/status\n", (int)pid);
-    return 1;
-}
+        if(actualizar== 1){
+            actualizar= 0;
 
+            //Guarda el instante real de esta actualizacion
+            if(clock_gettime(CLOCK_MONOTONIC, &tiempo_actual)== -1){
+                perror("clock_gettime");
+                return 1;
+            }
 
-double porcentaje_cpu= calcular_cpu(&anterior, &actual, intervalo);
+            //Nueva lectura del proceso
+            if(leer_stat(pid, &actual)== 1){
+                printf("El proceso %d termino\n", (int)pid);
+                break;
+            }
 
-    printf("PID:     %d\n", (int)actual.pid);
-    printf("Comando: %s\n", actual.comando);
-    printf("Estado:  %c (%s)\n", actual.estado, nombre_estado(actual.estado));
-    printf("utime:   %lu ticks\n", actual.utime);
-    printf("stime:   %lu ticks\n", actual.stime);
-    printf("CPU:     %.1f %%\n", porcentaje_cpu);
-    printf("VmRSS:   %ld KB\n", actual.rss_kb);
+            if(leer_status(pid, &actual)== 1){
+                fprintf(stderr,
+                        "No se pudo leer /proc/%d/status\n",
+                        (int)pid);
+                break;
+            }
+
+            //Calcula cuanto tiempo paso realmente entre ambas mediciones
+            double intervalo_real=
+                tiempo_transcurrido(tiempo_anterior, tiempo_actual);
+
+            //Calcula el porcentaje de CPU utilizado
+            double porcentaje_cpu=
+                calcular_cpu(&anterior, &actual, intervalo_real);
+
+            printf("\nPID:     %d\n", (int)actual.pid);
+            printf("Comando: %s\n", actual.comando);
+            printf("Estado:  %c (%s)\n",
+                   actual.estado,
+                   nombre_estado(actual.estado));
+            printf("CPU:     %.1f %%\n", porcentaje_cpu);
+            printf("VmRSS:   %ld KB\n", actual.rss_kb);
+
+            //La medicion actual pasa a ser la anterior para el siguiente ciclo
+            anterior= actual;
+            tiempo_anterior= tiempo_actual;
+
+            //Programa el siguiente refresco
+            alarm(intervalo);
+        }
+    }
+
+    //Cancela cualquier alarma pendiente
+    alarm(0);
 
     return 0;
 }
