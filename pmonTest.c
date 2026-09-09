@@ -15,6 +15,7 @@ typedef struct {
     unsigned long utime;
     unsigned long stime;
     long rss_kb;
+    double porcentaje_cpu;
 } ProcesoInfo;
 
 // la bandera para cuando se actualice si es que llego la señal
@@ -219,13 +220,10 @@ const char *nombre_estado(char estado){
 
 
 int main(int argc, char *argv[]){
-    if(argc!= 2){
-        printf("Uso: %s PID\n", argv[0]);
+    if(argc< 2){
+        printf("Uso: %s PID1 [PID2 PID3 ...]\n", argv[0]);
         return 1;
     }
-
-    //Se pasa el PID a un valor numerico para poder manejarlo con atoi()
-    pid_t pid= (pid_t)atoi(argv[1]);
 
     //Esto le dice al sistema que ejecute manejar_alarma() cuando reciba SIGALRM
     struct sigaction sa;
@@ -240,16 +238,53 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    //Se crean las dos mediciones del proceso
-    ProcesoInfo anterior;
-    ProcesoInfo actual;
+    //Cantidad de procesos recibidos
+    int cantidad= argc - 1;
 
-    anterior.pid= pid;
-    actual.pid= pid;
+    //Se reservan estructuras para las mediciones anterior y actual
+    ProcesoInfo *anteriores= calloc(cantidad, sizeof(ProcesoInfo));
+    ProcesoInfo *actuales= calloc(cantidad, sizeof(ProcesoInfo));
 
-    //Primera medicion
-    if(leer_stat(pid, &anterior)== 1){
-        fprintf(stderr, "No se pudo realizar la primera lectura\n");
+    //Indica si cada proceso sigue activo
+    int *activos= calloc(cantidad, sizeof(int));
+
+    if(anteriores== NULL || actuales== NULL || activos== NULL){
+        fprintf(stderr, "Error al reservar memoria\n");
+
+        free(anteriores);
+        free(actuales);
+        free(activos);
+
+        return 1;
+    }
+
+    int cantidad_activos= 0;
+
+    //Primera medicion de todos los procesos
+    for(int i= 0; i< cantidad; i++){
+        pid_t pid= (pid_t)atoi(argv[i + 1]);
+
+        anteriores[i].pid= pid;
+        actuales[i].pid= pid;
+
+        if(leer_stat(pid, &anteriores[i])== 1){
+            fprintf(stderr, "No se pudo leer el proceso %d\n", (int)pid);
+            activos[i]= 0;
+            continue;
+        }
+
+        activos[i]= 1;
+        cantidad_activos++;
+    }
+
+    //Si ninguno de los PID entregados existe, se termina el programa
+    if(cantidad_activos== 0){
+        printf("No hay procesos validos para monitorear\n");
+
+        free(anteriores);
+        free(actuales);
+        free(activos);
+
         return 1;
     }
 
@@ -261,61 +296,89 @@ int main(int argc, char *argv[]){
     //Guarda el instante de la primera medicion
     if(clock_gettime(CLOCK_MONOTONIC, &tiempo_anterior)== -1){
         perror("clock_gettime");
+
+        free(anteriores);
+        free(actuales);
+        free(activos);
+
         return 1;
     }
 
-    printf("Monitoreando PID %d cada %d segundos...\n",
-           (int)pid, intervalo);
+    printf("Monitoreando %d proceso(s) cada %d segundos...\n",
+           cantidad_activos, intervalo);
 
     //Programa la primera alarma
     alarm(intervalo);
 
     while(1){
 
-        //Espera hasta recibir una señal
+        //Espera hasta recibir la señal
         pause();
 
         if(actualizar== 1){
             actualizar= 0;
 
-            //Guarda el instante real de esta actualizacion
             if(clock_gettime(CLOCK_MONOTONIC, &tiempo_actual)== -1){
                 perror("clock_gettime");
-                return 1;
-            }
-
-            //Nueva lectura del proceso
-            if(leer_stat(pid, &actual)== 1){
-                printf("El proceso %d termino\n", (int)pid);
                 break;
             }
 
-            if(leer_status(pid, &actual)== 1){
-                fprintf(stderr,
-                        "No se pudo leer /proc/%d/status\n",
-                        (int)pid);
-                break;
-            }
-
-            //Calcula cuanto tiempo paso realmente entre ambas mediciones
             double intervalo_real=
                 tiempo_transcurrido(tiempo_anterior, tiempo_actual);
 
-            //Calcula el porcentaje de CPU utilizado
-            double porcentaje_cpu=
-                calcular_cpu(&anterior, &actual, intervalo_real);
+            int procesos_restantes= 0;
 
-            printf("\nPID:     %d\n", (int)actual.pid);
-            printf("Comando: %s\n", actual.comando);
-            printf("Estado:  %c (%s)\n",
-                   actual.estado,
-                   nombre_estado(actual.estado));
-            printf("CPU:     %.1f %%\n", porcentaje_cpu);
-            printf("VmRSS:   %ld KB\n", actual.rss_kb);
+            printf("\n");
+            printf("%-8s %-20s %-10s %-12s %-10s\n",
+                   "PID", "COMANDO", "ESTADO", "%CPU", "RSS(KB)");
 
-            //La medicion actual pasa a ser la anterior para el siguiente ciclo
-            anterior= actual;
+            for(int i= 0; i< cantidad; i++){
+
+                //Si este proceso ya termino, se ignora
+                if(activos[i]== 0){
+                    continue;
+                }
+
+                pid_t pid= anteriores[i].pid;
+                actuales[i].pid= pid;
+
+                //Nueva lectura del proceso
+                if(leer_stat(pid, &actuales[i])== 1){
+                    activos[i]= 0;
+                    continue;
+                }
+
+                //Lectura de memoria residente
+                if(leer_status(pid, &actuales[i])== 1){
+                    activos[i]= 0;
+                    continue;
+                }
+
+                //Calcula CPU entre la medicion anterior y la actual
+                actuales[i].porcentaje_cpu=
+                    calcular_cpu(&anteriores[i], &actuales[i], intervalo_real);
+
+                printf("%-8d %-20s %-10c %-12.1f %-10ld\n",
+                       (int)actuales[i].pid,
+                       actuales[i].comando,
+                       actuales[i].estado,
+                       actuales[i].porcentaje_cpu,
+                       actuales[i].rss_kb);
+
+                //La medicion actual pasa a ser la anterior
+                anteriores[i]= actuales[i];
+
+                procesos_restantes++;
+            }
+
+            //El tiempo actual pasa a ser el anterior
             tiempo_anterior= tiempo_actual;
+
+            //Si todos los procesos terminaron, se deja de monitorear
+            if(procesos_restantes== 0){
+                printf("Todos los procesos monitoreados terminaron\n");
+                break;
+            }
 
             //Programa el siguiente refresco
             alarm(intervalo);
@@ -324,6 +387,11 @@ int main(int argc, char *argv[]){
 
     //Cancela cualquier alarma pendiente
     alarm(0);
+
+    //Libera la memoria reservada
+    free(anteriores);
+    free(actuales);
+    free(activos);
 
     return 0;
 }
