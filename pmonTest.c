@@ -154,9 +154,28 @@ int leer_status(pid_t pid, ProcesoInfo *info)
 
     fclose(archivo);
 
+    if(info->rss_kb== -1){
+        return 1;
+    }
+
     return 0;
 }
 
+// Calcula el porcentaje aproximado de CPU entre dos mediciones
+double calcular_cpu(ProcesoInfo *anterior, ProcesoInfo *actual, double intervalo)
+{
+    unsigned long cpu_anterior= anterior->utime + anterior->stime;
+    unsigned long cpu_actual= actual->utime + actual->stime;
+    unsigned long diferencia_ticks= cpu_actual - cpu_anterior;
+    long ticks_por_segundo= sysconf(_SC_CLK_TCK);
+
+    if(ticks_por_segundo<= 0 || intervalo<= 0){
+        return 0.0;
+    }
+    double tiempo_cpu= (double)diferencia_ticks / ticks_por_segundo;
+    double porcentaje= (tiempo_cpu / intervalo) * 100.0;
+    return porcentaje;
+}
 
 // Aqui cada letra tiene su estado incorporado 
 const char *nombre_estado(char estado)
@@ -186,57 +205,58 @@ const char *nombre_estado(char estado)
 
 int main(int argc, char *argv[])
 {
-    if (argc != 2) {
+    if (argc!= 2) {
         printf("Uso: %s PID\n", argv[0]);
         return 1;
     }
 
 	//Se pasa el PID a un valor numerico para poder manejarlo con el atoi()
 
-    pid_t pid = (pid_t)atoi(argv[1]);
+    pid_t pid= (pid_t)atoi(argv[1]);
 
-    ProcesoInfo proceso;
+    ProcesoInfo anterior;
+    ProcesoInfo actual;
+    anterior.pid= pid;
+    actual.pid= pid;
 
-    proceso.pid = pid;
-
-
-    if (leer_stat(pid, &proceso) == 1) {
-
-        fprintf(
-            stderr,
-            "No se pudo leer /proc/%d/stat\n",
-            (int)pid
-        );
-
-        return 1;
-    }
+// Primera medicion
+if (leer_stat(pid, &anterior)== 1) {
+    fprintf(stderr, "No se pudo realizar la primera lectura\n");
+    return 1;
+}
 
 
-    if (leer_status(pid, &proceso) == 1) {
+// Intervalo de prueba: 2 segundos
+int intervalo= 2;
 
-        fprintf(
-            stderr,
-            "No se pudo leer /proc/%d/status\n",
-            (int)pid
-        );
+printf("Midiendo proceso %d durante %d segundos...\n",
+       (int)pid, intervalo);
 
-        return 1;
-    }
+sleep(intervalo);
 
 
-    printf("PID:     %d\n", (int)proceso.pid);
-    printf("Comando: %s\n", proceso.comando);
+// Segunda medicion
+if (leer_stat(pid, &actual)== 1) {
+    fprintf(stderr, "El proceso termino durante la medicion\n");
+    return 1;
+}
 
-    printf(
-        "Estado:  %c (%s)\n",
-        proceso.estado,
-        nombre_estado(proceso.estado)
-    );
 
-    printf("utime:   %lu ticks\n", proceso.utime);
-    printf("stime:   %lu ticks\n", proceso.stime);
-    printf("VmRSS:   %ld KB\n", proceso.rss_kb);
+if (leer_status(pid, &actual)== 1) {
+    fprintf(stderr, "No se pudo leer /proc/%d/status\n", (int)pid);
+    return 1;
+}
 
+
+double porcentaje_cpu= calcular_cpu(&anterior, &actual, intervalo);
+
+    printf("PID:     %d\n", (int)actual.pid);
+    printf("Comando: %s\n", actual.comando);
+    printf("Estado:  %c (%s)\n", actual.estado, nombre_estado(actual.estado));
+    printf("utime:   %lu ticks\n", actual.utime);
+    printf("stime:   %lu ticks\n", actual.stime);
+    printf("CPU:     %.1f %%\n", porcentaje_cpu);
+    printf("VmRSS:   %ld KB\n", actual.rss_kb);
 
     return 0;
 }
