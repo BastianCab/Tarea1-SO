@@ -33,7 +33,7 @@ static void manejar_alarma(int signal){
 }
 
 //Manejador de Ctrl+C, avisa que pmon debe terminar
-static void manejar_sigint(int signal) {
+static void manejar_sigint(int signal){
     (void)signal;
     salir_pmon= 1;
 }
@@ -139,12 +139,11 @@ static int leer_status(pid_t pid, ProcesoInfo *info){
     fclose(archivo);
 
     if(info->rss_kb== -1){
-        return 1;
+        info->rss_kb= 0;
     }
 
     return 0;
 }
-
 
 //Calcula porcentaje aproximado de CPU entre dos mediciones
 static double calcular_cpu(ProcesoInfo *anterior, ProcesoInfo *actual, double intervalo){
@@ -222,6 +221,31 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
         return 1;
     }
 
+    //Bloquea SIGALRM y SIGINT
+    sigset_t mascara_bloqueada;
+    sigset_t mascara_anterior;
+    sigset_t mascara_espera;
+
+    sigemptyset(&mascara_bloqueada);
+    sigaddset(&mascara_bloqueada, SIGALRM);
+    sigaddset(&mascara_bloqueada, SIGINT);
+
+    if(sigprocmask(SIG_BLOCK, &mascara_bloqueada, &mascara_anterior)== -1){
+       perror("sigprocmask");
+
+       sigaction(SIGALRM, &anterior_alarm, NULL);
+       sigaction(SIGINT, &anterior_int, NULL);
+
+        return 1;
+}
+
+mascara_espera= mascara_anterior;
+
+sigdelset(&mascara_espera, SIGALRM);
+sigdelset(&mascara_espera, SIGINT);
+
+    
+
     ProcesoInfo *anteriores= calloc(cantidad, sizeof(ProcesoInfo));
     ProcesoInfo *actuales= calloc(cantidad, sizeof(ProcesoInfo));
     int *activos= calloc(cantidad, sizeof(int));
@@ -235,6 +259,7 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
 
     sigaction(SIGALRM, &anterior_alarm, NULL);
     sigaction(SIGINT, &anterior_int, NULL);
+    sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
 
     return 1;
 }
@@ -266,6 +291,7 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
 
     sigaction(SIGALRM, &anterior_alarm, NULL);
     sigaction(SIGINT, &anterior_int, NULL);
+    sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
 
     return 1;
 }
@@ -282,6 +308,7 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
 
     sigaction(SIGALRM, &anterior_alarm, NULL);
     sigaction(SIGINT, &anterior_int, NULL);
+    sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
 
     return 1;
 }
@@ -295,7 +322,10 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
     alarm(intervalo);
 
     while(salir_pmon== 0){
-        pause();
+
+    while(actualizar== 0 && salir_pmon== 0){
+        sigsuspend(&mascara_espera);
+    }
 
     if(salir_pmon== 1){
         break;
@@ -311,8 +341,11 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
         free(actuales);
         free(activos);
 
+
         sigaction(SIGALRM, &anterior_alarm, NULL);
         sigaction(SIGINT, &anterior_int, NULL);
+        alarm(0);
+        sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
 
         return 1;
 }
@@ -376,9 +409,14 @@ int ejecutar_pmon(pid_t *pids, int cantidad, int intervalo){
     free(actuales);
     free(activos);
 
+    alarm(0);
+
     //Se restauran los manejadores anteriores
     sigaction(SIGALRM, &anterior_alarm, NULL);
     sigaction(SIGINT, &anterior_int, NULL);
+
+    //Se restaura la mascara de señales anterior
+    sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
 
     if(salir_pmon== 1){
         printf("\nSaliendo de pmon...\n");
