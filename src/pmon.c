@@ -164,6 +164,21 @@ static double calcular_cpu(ProcesoInfo *anterior, ProcesoInfo *actual, double in
     return porcentaje;
 }
 
+//Compara dos procesos para ordenarlos de mayor a menor porcentaje de CPU
+static int comparar_cpu(const void *a, const void *b){
+    const ProcesoInfo *proceso_a= (const ProcesoInfo *)a;
+    const ProcesoInfo *proceso_b= (const ProcesoInfo *)b;
+
+    if(proceso_a->porcentaje_cpu< proceso_b->porcentaje_cpu){
+        return 1;
+    }
+
+    if(proceso_a->porcentaje_cpu> proceso_b->porcentaje_cpu){
+        return -1;
+    }
+
+    return 0;
+}
 
 //Calcula el tiempo real transcurrido
 static double tiempo_transcurrido(struct timespec inicio, struct timespec fin){
@@ -323,41 +338,38 @@ sigdelset(&mascara_espera, SIGINT);
 
     while(salir_pmon== 0){
 
-    while(actualizar== 0 && salir_pmon== 0){
-        sigsuspend(&mascara_espera);
+        while(actualizar== 0 && salir_pmon== 0){
+            sigsuspend(&mascara_espera);
     }
 
-    if(salir_pmon== 1){
-        break;
-    }
+        if(salir_pmon== 1){
+            break;
+        }
 
-    if(actualizar== 1){
+        if(actualizar== 1){
             actualizar= 0;
 
-    if(clock_gettime(CLOCK_MONOTONIC, &tiempo_actual)== -1){
-        perror("clock_gettime");
+        if(clock_gettime(CLOCK_MONOTONIC, &tiempo_actual)== -1){
+            perror("clock_gettime");
+            alarm(0);
 
-        free(anteriores);
-        free(actuales);
-        free(activos);
+            free(anteriores);
+            free(actuales);
+            free(activos);
 
 
-        sigaction(SIGALRM, &anterior_alarm, NULL);
-        sigaction(SIGINT, &anterior_int, NULL);
-        alarm(0);
-        sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
+            sigaction(SIGALRM, &anterior_alarm, NULL);
+            sigaction(SIGINT, &anterior_int, NULL);
+            sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
 
-        return 1;
+            return 1;
 }
 
             double intervalo_real=
                 tiempo_transcurrido(tiempo_anterior, tiempo_actual);
 
             int procesos_restantes= 0;
-
-            printf("\n");
-            printf("%-8s %-20s %-10s %-12s %-10s\n",
-                   "PID", "COMANDO", "ESTADO", "%CPU", "RSS(KB)");
+            ProcesoInfo tabla[cantidad];
 
             for(int i= 0; i< cantidad; i++){
                 if(activos[i]== 0){
@@ -380,18 +392,41 @@ sigdelset(&mascara_espera, SIGINT);
                 actuales[i].porcentaje_cpu=
                     calcular_cpu(&anteriores[i], &actuales[i], intervalo_real);
 
-                printf("%-8d %-20s %-10c %-12.1f %-10ld\n",
-                       (int)actuales[i].pid,
-                       actuales[i].comando,
-                       actuales[i].estado,
-                       actuales[i].porcentaje_cpu,
-                       actuales[i].rss_kb);
+                //Guarda el proceso en la tabla temporal para luego ordenarlo
+                tabla[procesos_restantes]= actuales[i];
 
+                //La medicion actual pasa a ser la anterior
                 anteriores[i]= actuales[i];
 
                 procesos_restantes++;
             }
 
+            //Ordena la tabla de mayor a menor porcentaje de CPU
+            qsort(tabla, procesos_restantes, sizeof(ProcesoInfo), comparar_cpu);
+
+
+            //Muestra los procesos ya ordenados
+            printf("\n");
+            printf("   %-8s %-20s %-10s %-12s %-10s\n",
+                   "PID", "COMANDO", "ESTADO", "%CPU", "RSS(KB)");
+
+            for(int i= 0; i< procesos_restantes; i++){
+
+               //El primer proceso es el que tiene mayor uso de CPU
+                if(i== 0){
+                    printf(">> ");
+                }
+                else{
+                    printf("   ");
+                }
+
+            printf("%-8d %-20s %-10c %-12.1f %-10ld\n",
+                (int)tabla[i].pid,
+                tabla[i].comando,
+                tabla[i].estado,
+                tabla[i].porcentaje_cpu,
+                tabla[i].rss_kb);
+}
             tiempo_anterior= tiempo_actual;
 
             if(procesos_restantes== 0){
@@ -403,12 +438,7 @@ sigdelset(&mascara_espera, SIGINT);
         }
     }
 
-    alarm(0);
-
-    free(anteriores);
-    free(actuales);
-    free(activos);
-
+    
     alarm(0);
 
     //Se restauran los manejadores anteriores
@@ -417,6 +447,10 @@ sigdelset(&mascara_espera, SIGINT);
 
     //Se restaura la mascara de señales anterior
     sigprocmask(SIG_SETMASK, &mascara_anterior, NULL);
+
+    free(anteriores);
+    free(actuales);
+    free(activos);
 
     if(salir_pmon== 1){
         printf("\nSaliendo de pmon...\n");
