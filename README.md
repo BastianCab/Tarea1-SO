@@ -8,7 +8,7 @@ Tarea 1 del curso Sistemas Operativos, 2026.
 - Tomás Garrido
 - Martin Garcia
 - Matias Pareja
-- Bastian
+- Bastian Cabezas
 
 ## Compilación
 
