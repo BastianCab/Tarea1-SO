@@ -135,12 +135,67 @@ int main() {
                 // Restaurar las señales por defecto para que Ctrl+C pueda matar al comando en foreground
                 child_signals_restore_default();
                 
-                // FALTA IMPLEMENTAR LA REDIRECCION DE ENTRADA Y SALIDA SI EL USUARIO INCLUYE '>' O '<'
+                // Extraer redirecciones de entrada (<) y salida (>, >>) modificando el arreglo args
+                char *archivo_in = NULL;
+                char *archivo_out = NULL;
+                int append = 0;
+                
+                for (int j = 0; j < i; j++) {
+                    if (args[j] != NULL) {
+                        if (strcmp(args[j], "<") == 0) {
+                            if (j + 1 < i) archivo_in = args[j+1];
+                            args[j] = NULL;
+                        } else if (strcmp(args[j], ">") == 0) {
+                            if (j + 1 < i) archivo_out = args[j+1];
+                            append = 0;
+                            args[j] = NULL;
+                        } else if (strcmp(args[j], ">>") == 0) {
+                            if (j + 1 < i) archivo_out = args[j+1];
+                            append = 1;
+                            args[j] = NULL;
+                        }
+                    }
+                }
+                
+                // Ejecutamos las redirecciones, esto conecta los archivos directamente a este clon
+                redireccionar(archivo_in, archivo_out, append);
 
-                // execvp borra el cerebro a este clon y lo reemplaza por el programa que pidió el usuario (ej: ls)
-                if (execvp(args[0], args) == -1) {
-                    perror("Error al ejecutar comando"); // Notificamos si el comando es inválido o no existe
-                    exit(1);                             // Finalizamos el proceso hijo en caso de error
+                // Contar las tuberías (|) para determinar qué flujo de ejecución utilizar
+                int num_pipes = 0;
+                for (int j = 0; j < i; j++) {
+                    if (args[j] != NULL && strcmp(args[j], "|") == 0) {
+                        num_pipes++;
+                    }
+                }
+
+                if (num_pipes > 0) {
+                    // Preparamos la estructura de múltiples comandos exigida por la función creaPipe
+                    int cmdsTotal = num_pipes + 1;
+                    char ***cmds = malloc(cmdsTotal * sizeof(char**));
+                    int cmd_idx = 0;
+                    
+                    cmds[0] = &args[0]; // El primer comando empieza al inicio del arreglo original
+                    
+                    for (int j = 0; j < i; j++) {
+                        if (args[j] != NULL && strcmp(args[j], "|") == 0) {
+                            args[j] = NULL; // Cortamos el arreglo para aislar el comando actual
+                            cmds[++cmd_idx] = &args[j + 1]; // El siguiente comando empieza justo después del '|'
+                        }
+                    }
+                    
+                    // Delegamos la ejecución y creación de sub-hijos al módulo de tuberías
+                    creaPipe(cmds, cmdsTotal);
+                    free(cmds);
+                    
+                    // Finalizamos este clon ya que su trabajo como organizador de la tubería ha terminado
+                    exit(0);
+                    
+                } else {
+                    // execvp borra el cerebro a este clon y lo reemplaza por el programa que pidió el usuario (ej: ls)
+                    if (execvp(args[0], args) == -1) {
+                        perror("Error al ejecutar comando"); // Notificamos si el comando es inválido o no existe
+                        exit(1);                             // Finalizamos el proceso hijo en caso de error
+                    }
                 }
             
             } else if (pid > 0) {
