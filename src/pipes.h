@@ -1,6 +1,5 @@
 #ifndef PIPES_H
 #define PIPES_H
 
-void creaPipes(char** cmd1, char** cmd2);
-
+void creaPipe(char ***cmds, int cmdsTotal);
 #endif

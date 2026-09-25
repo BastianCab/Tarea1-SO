@@ -28,18 +28,24 @@ void redireccionar(char* archivoEntrada, char* archivoSalida, int append) {
         
         //File descriptor del archivo de salida, se inicializa segun append
         int fdOut;
-        if (append) {
-            int fdOut = open(archivoSalida, flags | O_APPEND, 0644);
-        } else {
-            int fdOut = open(archivoSalida, flags | O_TRUNC, 0644);
+
+        if(append){
+            fdOut= open(archivoSalida, flags | O_APPEND, 0644);
+        }
+        else{
+            fdOut= open(archivoSalida, flags | O_TRUNC, 0644);
         }
 
-        if (fdOut == -1) {
+        if(fdOut== -1){
             perror("Error al abrir archivo de salida");
-            _exit(1);
+            return;
         }
-        
-        dup2(fdOut, STDIN_FILENO);
+        if(dup2(fdOut, STDOUT_FILENO)== -1){
+            perror("Error en dup2");
+            close(fdOut);
+            return;
+        }
+
         close(fdOut);
     }
 }
