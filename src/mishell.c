@@ -184,7 +184,7 @@ int main() {
                     }
                     
                     // Delegamos la ejecución y creación de sub-hijos al módulo de tuberías
-                    creaPipe(cmds, cmdsTotal);
+                    creaPipes(cmds, cmdsTotal);
                     free(cmds);
                     
                     // Finalizamos este clon ya que su trabajo como organizador de la tubería ha terminado
