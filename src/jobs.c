@@ -115,7 +115,7 @@ void jobs_notify_done(void) {
             !jobs[i].notified) {
 
             /* Formato pedido: [1]+ Done sleep 30 */
-            printf("[%d] + Done %s\n",
+            printf("[%d]+ Done                    %s\n",
                    jobs[i].job_id, jobs[i].cmdline);
             fflush(stdout);
 
