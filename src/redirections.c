@@ -25,27 +25,25 @@ void redireccionar(char* archivoEntrada, char* archivoSalida, int append) {
 
     if (archivoSalida != NULL) {
         int flags = O_WRONLY | O_CREAT;
-        
-        //File descriptor del archivo de salida, se inicializa segun append
+
+        // File descriptor del archivo de salida, se inicializa segun append.
+        // OJO: NO volver a declarar 'fdOut' dentro de cada rama del
+        // if/else (eso crea una variable NUEVA que solo vive dentro
+        // de esas llaves, dejando la de afuera sin inicializar).
         int fdOut;
-
-        if(append){
-            fdOut= open(archivoSalida, flags | O_APPEND, 0644);
-        }
-        else{
-            fdOut= open(archivoSalida, flags | O_TRUNC, 0644);
+        if (append) {
+            fdOut = open(archivoSalida, flags | O_APPEND, 0644);
+        } else {
+            fdOut = open(archivoSalida, flags | O_TRUNC, 0644);
         }
 
-        if(fdOut== -1){
+        if (fdOut == -1) {
             perror("Error al abrir archivo de salida");
-            return;
-        }
-        if(dup2(fdOut, STDOUT_FILENO)== -1){
-            perror("Error en dup2");
-            close(fdOut);
-            return;
+            _exit(1);
         }
 
+        // OJO: el archivo de SALIDA se conecta a STDOUT, no a STDIN.
+        dup2(fdOut, STDOUT_FILENO);
         close(fdOut);
     }
 }
