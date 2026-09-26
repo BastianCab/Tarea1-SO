@@ -1,14 +1,12 @@
 #ifndef BUILTINS_H
 #define BUILTINS_H
 
-/* Devuelve 1 si args[0] es un comando interno (built-in) y ya fue
- * manejado por completo (la shell no debe hacer fork/exec para él).
- * Devuelve 0 si NO es un built-in (el llamador debe tratarlo como
- * comando externo).
+/* Si args[0] es un comando interno (cd, exit, jobs, pmon), lo
+ * ejecuta por completo y devuelve 1 (la shell NO debe hacer
+ * fork/exec para él). Si no es un built-in, devuelve 0.
  *
- * 'salir' se pone en 1 si el built-in ejecutado fue "exit"; en ese
- * caso 'codigo_salida' queda con el código que debe usar main() al
- * retornar. */
-int builtin_ejecutar(char **args, int *salir, int *codigo_salida);
+ * Si el built-in ejecutado fue "exit", pone *salir = 1 para que
+ * main() sepa que debe terminar el ciclo. */
+int builtins_ejecutar(char **args, int *salir);
 
 #endif /* BUILTINS_H */
