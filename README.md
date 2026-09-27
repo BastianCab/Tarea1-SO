@@ -62,9 +62,27 @@ docs/       diagramas de arquitectura
 
 ## Pruebas
 
-Ver `tests/`. Cada script `.sh` ejercita una parte de la especificación
-(pipes, redirección, background, señales).
+En `tests/` hay dos scripts que prueban automáticamente R5 (background)
+y R6 (manejo de señales). No requieren compilación (son scripts, no
+código C), pero sí estos prerrequisitos:
 
-## Limitaciones conocidas
+- `bash` (viene instalado en cualquier distribución Linux)
+- `python3` (usa únicamente el módulo `pty` de la librería estándar,
+  no requiere instalar nada adicional con pip)
 
-- (completar durante el desarrollo)
+### Cómo correrlos
+
+Compila primero el proyecto (`make`, ver sección Compilación), y luego:
+
+```bash
+cd tests
+bash test_background.sh ../mishell      # prueba R5
+python3 test_signals.py ../mishell      # prueba R6
+```
+
+Cada uno imprime `[OK]` o `[FALLO]` por cada caso probado, y un resumen
+final, por ejemplo:
+
+== Resumen R5: 5 OK / 0 FALLOS ==
+
+== Resumen R6: 3 OK / 0 FALLOS ==
